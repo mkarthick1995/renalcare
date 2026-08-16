@@ -154,6 +154,18 @@ class RiskSnapshot(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class GoalSnapshot(Base):
+    """Daily cache of generated health goals — bounds LLM calls to at most
+    one per patient per day, regardless of how many times the tab is opened."""
+    __tablename__ = "goal_snapshots"
+
+    id = Column(String, primary_key=True, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"), index=True)
+    date = Column(String, index=True)  # YYYY-MM-DD
+    goals_json = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class DietRecommendation(Base):
     """Diet recommendations based on stone type"""
     __tablename__ = "diet_recommendations"

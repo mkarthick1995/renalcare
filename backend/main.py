@@ -18,9 +18,10 @@ import uuid
 import os
 
 # Import local modules
-from database import init_db, get_db, seed_diet_recommendations, Patient, KidneyScan, WaterIntake, MealLog, DietRecommendation, Appointment, DoctorRecommendation, RiskSnapshot, User
+from database import init_db, get_db, seed_diet_recommendations, Patient, KidneyScan, WaterIntake, MealLog, DietRecommendation, Appointment, DoctorRecommendation, RiskSnapshot, User, GoalSnapshot
 from image_utils import save_upload_file, analyze_image_file
 from auth import hash_password, verify_password, create_access_token, decode_access_token
+from goals import generate_llm_goals, generate_fallback_goals
 from schemas import (
     PatientCreate, PatientResponse, ScanUploadRequest, ScanResponse, ScanDetailedResponse,
     WaterIntakeCreate, WaterIntakeResponse, DailyWaterSummary,
@@ -999,6 +1000,56 @@ def get_meal_recommendations(patient_id: str, db: Session) -> list:
             ])
     
     return recommendations
+
+
+# ============= Health Goals Endpoints =============
+
+@app.get("/api/goals/{patient_id}")
+def get_health_goals(patient_id: str, db: Session = Depends(get_db)):
+    """Personalized health goals, LLM-generated when ENABLE_LLM_GOALS=true (with a
+    free rule-based fallback), cached once per patient per day to bound API cost."""
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    today = datetime.utcnow().date().isoformat()
+
+    cached = db.query(GoalSnapshot).filter(
+        GoalSnapshot.patient_id == patient_id, GoalSnapshot.date == today
+    ).first()
+    if cached:
+        return json.loads(cached.goals_json)
+
+    latest_scan = db.query(KidneyScan).filter(
+        KidneyScan.patient_id == patient_id
+    ).order_by(KidneyScan.created_at.desc()).first()
+    risk_score = calculate_patient_risk(patient, db)
+
+    patient_stats = {
+        "name": patient.name,
+        "risk_percentage": round(risk_score * 100, 1),
+        "risk_level": get_risk_level(risk_score),
+        "stone_type": latest_scan.stone_type if latest_scan else "unknown",
+        "latest_scan_severity": latest_scan.severity if latest_scan else "none",
+    }
+
+    enable_llm = os.getenv("ENABLE_LLM_GOALS", "false").lower() == "true"
+    try:
+        result = generate_llm_goals(patient_stats) if enable_llm else generate_fallback_goals(patient_stats)
+    except Exception as e:
+        print(f"LLM goal generation failed, using fallback: {e}")
+        result = generate_fallback_goals(patient_stats)
+
+    snapshot = GoalSnapshot(
+        id=f"goal_{uuid.uuid4().hex[:8]}",
+        patient_id=patient_id,
+        date=today,
+        goals_json=json.dumps(result),
+    )
+    db.add(snapshot)
+    db.commit()
+
+    return result
 
 
 # ============= Appointment Endpoints =============
