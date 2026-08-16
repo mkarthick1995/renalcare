@@ -41,10 +41,9 @@ def main():
     print("="*60)
     print("\n📝 Next steps:")
     print("  1. Start the backend: python main.py")
-    print("  2. API docs: http://localhost:8000/docs")
-    print("  3. Optional: Train ML models")
-    print("     - Vision model: python train_vision_model.py")
-    print("     - Risk model: python train_risk_model.py")
+    print("  2. API docs: http://localhost:8001/docs")
+    print("  3. Optional: train the vision model (see backend/README.md)")
+    print("     python train_vision_model.py")
     print("\n")
 
 if __name__ == "__main__":

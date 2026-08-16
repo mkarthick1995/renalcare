@@ -22,3 +22,23 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python backend
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+backend/venv/
+backend/*.db
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Environment secrets — never commit real values
+.env
+backend/.env
+!.env.example
+!backend/.env.example
+
+# Trained models and raw datasets — large binaries don't belong in git
+backend/data/
+backend/models/*.pth
+backend/models/*.pkl
