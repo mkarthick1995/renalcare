@@ -3,9 +3,13 @@ RenalCare AI - FastAPI Backend
 Complete backend for kidney stone analysis, tracking, and recommendations
 """
 
+from dotenv import load_dotenv
+load_dotenv()  # must run before any os.getenv() calls, including in database.py and auth.py
+
 from fastapi import FastAPI, File, UploadFile, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta
@@ -14,8 +18,9 @@ import uuid
 import os
 
 # Import local modules
-from database import init_db, get_db, seed_diet_recommendations, Patient, KidneyScan, WaterIntake, MealLog, DietRecommendation, Appointment, DoctorRecommendation, RiskSnapshot
+from database import init_db, get_db, seed_diet_recommendations, Patient, KidneyScan, WaterIntake, MealLog, DietRecommendation, Appointment, DoctorRecommendation, RiskSnapshot, User
 from image_utils import save_upload_file, analyze_image_file
+from auth import hash_password, verify_password, create_access_token, decode_access_token
 from schemas import (
     PatientCreate, PatientResponse, ScanUploadRequest, ScanResponse, ScanDetailedResponse,
     WaterIntakeCreate, WaterIntakeResponse, DailyWaterSummary,
@@ -23,6 +28,7 @@ from schemas import (
     DietRecommendationRequest, DietRecommendationResponse,
     RiskPredictionRequest, RiskPredictionResponse,
     AppointmentCreate, DoctorRecommendationCreate,
+    UserRegister, UserLogin, AuthResponse,
     SuccessResponse, ErrorResponse, HealthSummary
 )
 
@@ -81,6 +87,64 @@ def health_check():
             "ml_models": "loaded"
         }
     }
+
+
+# ============= Auth Endpoints =============
+# Uses JSON request bodies rather than OAuth2PasswordRequestForm's form-encoding —
+# simpler to match the frontend's fetch() calls; not strict OAuth2 password-flow
+# compliance, which isn't needed for this app's single first-party client.
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+
+
+@app.post("/api/auth/register", response_model=AuthResponse)
+def register(payload: UserRegister, db: Session = Depends(get_db)):
+    """Create a login account and its one-to-one patient profile."""
+    if db.query(User).filter(User.email == payload.email).first():
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    user = User(
+        id=f"user_{uuid.uuid4().hex[:8]}",
+        email=payload.email,
+        hashed_password=hash_password(payload.password),
+    )
+    db.add(user)
+    db.flush()
+
+    patient = Patient(
+        id=f"patient_{uuid.uuid4().hex[:8]}",
+        user_id=user.id,
+        name=payload.name,
+        age=payload.age,
+        gender=payload.gender,
+    )
+    db.add(patient)
+    db.commit()
+
+    token = create_access_token({"sub": user.id, "patient_id": patient.id})
+    return AuthResponse(access_token=token, patient_id=patient.id)
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+def login(payload: UserLogin, db: Session = Depends(get_db)):
+    """Authenticate and issue a JWT scoped to the caller's patient_id."""
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user or not verify_password(payload.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    patient = db.query(Patient).filter(Patient.user_id == user.id).first()
+    token = create_access_token({"sub": user.id, "patient_id": patient.id if patient else None})
+    return AuthResponse(access_token=token, patient_id=patient.id if patient else None)
+
+
+def get_current_patient_id(token: str = Depends(oauth2_scheme)) -> str:
+    """Dependency for endpoints that must be scoped to the logged-in patient."""
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_access_token(token)
+    if not payload or not payload.get("patient_id"):
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return payload["patient_id"]
 
 
 # ============= Patient Management Endpoints =============
@@ -269,7 +333,7 @@ def get_risk_insights(patient_id: str, days: int = 30, db: Session = Depends(get
         "mild": 25,
         "moderate": 48,
         "severe": 72,
-    }.get((latest_scan.severity or "none").lower(), 20)
+    }.get((latest_scan.severity if latest_scan else "none").lower(), 20)
 
     size_penalty = min(18.0, (latest_scan.stone_size_mm or 0) / 10.0 * 8.0) if latest_scan else 0.0
     hydration_penalty = max(0.0, (100.0 - average_compliance) / 100.0 * 35.0)

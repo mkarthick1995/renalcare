@@ -18,19 +18,33 @@ Base = declarative_base()
 
 # ============= Database Models =============
 
+class User(Base):
+    """Login account. One-to-one with Patient — one login, one patient profile."""
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    patient = relationship("Patient", back_populates="user", uselist=False)
+
+
 class Patient(Base):
     """Patient/User model"""
     __tablename__ = "patients"
-    
+
     id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id"), unique=True, index=True, nullable=True)
     name = Column(String, index=True)
     age = Column(Integer)
     gender = Column(String)
     bmi = Column(Float)
     family_history = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
+    user = relationship("User", back_populates="patient")
     scans = relationship("KidneyScan", back_populates="patient", cascade="all, delete-orphan")
     water_intakes = relationship("WaterIntake", back_populates="patient", cascade="all, delete-orphan")
     appointments = relationship("Appointment", back_populates="patient", cascade="all, delete-orphan")

@@ -23,7 +23,10 @@ imageio>=2.33.1
 scipy>=1.11.4
 
 # Phase 4 — auth
+# bcrypt is pinned below 4.1: passlib 1.7.4's backend self-test is
+# incompatible with newer bcrypt releases and raises on every hash() call.
 passlib[bcrypt]>=1.7.4
+bcrypt<4.1
 python-jose[cryptography]>=3.3.0
 
 # Phase 5 — LLM Health Goals

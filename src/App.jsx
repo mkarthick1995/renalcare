@@ -1,16 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { motion, useAnimation } from 'framer-motion';
-import { Upload, Droplet, TrendingDown, Activity, AlertCircle, Check, Calendar, Award } from 'lucide-react';
+import { Upload, Droplet, TrendingDown, Activity, AlertCircle, Check, Calendar, Award, LogOut } from 'lucide-react';
 import ImageUploadComponent from './components/ImageUploadComponent';
 import WaterIntakeComponent from './components/WaterIntakeComponent';
 import RiskInsightsComponent from './components/RiskInsightsComponent';
 import AppointmentsComponent from './components/AppointmentsComponent';
 import GoalsComponent from './components/GoalsComponent';
-import { getHealthSummary, getRiskInsights, getRiskHistory } from './api';
+import AuthComponent from './components/AuthComponent';
+import { getHealthSummary, getRiskInsights, getRiskHistory, getStoredToken, clearStoredToken } from './api';
 
-const PATIENT_ID = 'patient_demo_001';
+function decodePatientIdFromToken(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.patient_id || null;
+  } catch {
+    return null;
+  }
+}
 
 export default function App() {
+  const [patientId, setPatientId] = useState(() => {
+    const token = getStoredToken();
+    return token ? decodePatientIdFromToken(token) : null;
+  });
+
   const [stoneComposition, setStoneComposition] = useState('calcium-oxalate');
   const [activeTab, setActiveTab] = useState('dashboard'); // NEW: Tab navigation
 
@@ -20,15 +33,16 @@ export default function App() {
   const [dashboardLoading, setDashboardLoading] = useState(true);
 
   useEffect(() => {
+    if (!patientId) return;
     let cancelled = false;
 
     const loadDashboardData = async () => {
       setDashboardLoading(true);
       try {
         const [summary, insights, history] = await Promise.all([
-          getHealthSummary(PATIENT_ID),
-          getRiskInsights(PATIENT_ID, 90),
-          getRiskHistory(PATIENT_ID, 6),
+          getHealthSummary(patientId),
+          getRiskInsights(patientId, 90),
+          getRiskHistory(patientId, 6),
         ]);
         if (cancelled) return;
         setHealthSummary(summary);
@@ -43,7 +57,16 @@ export default function App() {
 
     loadDashboardData();
     return () => { cancelled = true; };
-  }, []);
+  }, [patientId]);
+
+  const handleLogout = () => {
+    clearStoredToken();
+    setPatientId(null);
+  };
+
+  if (!patientId) {
+    return <AuthComponent onAuthenticated={(id) => setPatientId(id)} />;
+  }
 
   const hydration = healthSummary
     ? Math.min(100, Math.round((healthSummary.today_water_intake_ml / healthSummary.water_goal_ml) * 100))
@@ -89,12 +112,19 @@ export default function App() {
             <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-cyan-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
               <Droplet className="w-6 h-6 text-white" strokeWidth={2.5} />
             </div>
-            <div>
+            <div className="flex-1">
               <h1 className="text-2xl font-bold tracking-tight" style={{ fontFamily: "'Outfit', sans-serif" }}>
                 RenalCare <span className="text-blue-600">AI</span>
               </h1>
               <p className="text-xs text-slate-500 tracking-wide">Advanced Kidney Care</p>
             </div>
+            <button
+              onClick={handleLogout}
+              title="Log out"
+              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
 
           <nav className="space-y-2">
@@ -168,11 +198,11 @@ export default function App() {
           {/* CONDITIONAL: Show based on active tab */}
           {activeTab !== 'dashboard' && (
             <motion.div variants={itemVariants}>
-              {activeTab === 'scan' && <ImageUploadComponent patientId={PATIENT_ID} />}
-              {activeTab === 'hydration' && <WaterIntakeComponent patientId={PATIENT_ID} />}
-              {activeTab === 'risk' && <RiskInsightsComponent patientId={PATIENT_ID} />}
-              {activeTab === 'appointments' && <AppointmentsComponent patientId={PATIENT_ID} />}
-              {activeTab === 'goals' && <GoalsComponent patientId={PATIENT_ID} />}
+              {activeTab === 'scan' && <ImageUploadComponent patientId={patientId} />}
+              {activeTab === 'hydration' && <WaterIntakeComponent patientId={patientId} />}
+              {activeTab === 'risk' && <RiskInsightsComponent patientId={patientId} />}
+              {activeTab === 'appointments' && <AppointmentsComponent patientId={patientId} />}
+              {activeTab === 'goals' && <GoalsComponent patientId={patientId} />}
             </motion.div>
           )}
 
@@ -238,7 +268,7 @@ export default function App() {
               AI Scan Analysis
             </h3>
             <div className="grid grid-cols-2 gap-6 items-start">
-              <ImageUploadComponent patientId={PATIENT_ID} />
+              <ImageUploadComponent patientId={patientId} />
 
               {/* Latest Real Scan Summary */}
               <motion.div

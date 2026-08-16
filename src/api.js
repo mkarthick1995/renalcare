@@ -5,6 +5,45 @@
 
 const API_BASE_URL = "http://localhost:8001/api";
 
+// ============= Auth =============
+// Token storage note: localStorage is the pragmatic choice for a student demo
+// (simple, works) but is readable by any JS on the page. Acceptable risk here
+// since this app isn't handling real patient data or facing the public
+// internet. A real deployment should use an httpOnly cookie instead.
+
+const TOKEN_KEY = 'renalcare_token';
+
+export const getStoredToken = () => localStorage.getItem(TOKEN_KEY);
+export const setStoredToken = (token) => localStorage.setItem(TOKEN_KEY, token);
+export const clearStoredToken = () => localStorage.removeItem(TOKEN_KEY);
+
+const authHeaders = () => {
+  const token = getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+export const registerUser = async ({ email, password, name, age, gender }) => {
+  const response = await fetch(`${API_BASE_URL}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, name, age, gender }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || "Registration failed");
+  return data;
+};
+
+export const loginUser = async ({ email, password }) => {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || "Login failed");
+  return data;
+};
+
 // ============= Patient Management =============
 
 export const createPatient = async (patientData) => {

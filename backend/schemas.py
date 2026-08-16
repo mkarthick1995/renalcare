@@ -182,6 +182,27 @@ class HealthSummary(BaseModel):
     recommendations: List[str]
 
 
+# ============= Auth Schemas =============
+
+class UserRegister(BaseModel):
+    email: str
+    password: str
+    name: str
+    age: int
+    gender: str
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    patient_id: Optional[str] = None
+
+
 # ============= Appointment Schemas =============
 
 class AppointmentCreate(BaseModel):
