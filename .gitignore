@@ -42,3 +42,7 @@ backend/.env
 backend/data/
 backend/models/*.pth
 backend/models/*.pkl
+
+# Credentials that should never live inside the repo
+kaggle.json
+**/kaggle.json
