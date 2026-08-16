@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Upload, X, AlertCircle, CheckCircle, Loader } from 'lucide-react';
-import { uploadScan, getPatient } from '../api';
+import { uploadScan } from '../api';
 
 export default function ImageUploadComponent({ patientId = 'patient_demo_001' }) {
   const [isDragging, setIsDragging] = useState(false);

@@ -204,6 +204,19 @@ export const getRiskInsights = async (patientId, days = 30) => {
   }
 };
 
+export const getRiskHistory = async (patientId, months = 6) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/risk-insights/${patientId}/history?months=${months}`);
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status} - ${response.statusText}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Error fetching risk history:", error);
+    throw error;
+  }
+};
+
 export const resetWaterIntakeForDay = async (patientId, date = null) => {
   try {
     let url = `${API_BASE_URL}/water-intake/${patientId}/reset`;
@@ -326,6 +339,19 @@ export const getPatientRiskScore = async (patientId) => {
     return await response.json();
   } catch (error) {
     console.error("Error fetching risk score:", error);
+    throw error;
+  }
+};
+
+// ============= Health Goals =============
+
+export const getHealthGoals = async (patientId) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/goals/${patientId}`);
+    if (!response.ok) throw new Error(`API Error: ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    console.error("Error fetching health goals:", error);
     throw error;
   }
 };

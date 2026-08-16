@@ -9,13 +9,12 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta
-import pickle
 import json
 import uuid
 import os
 
 # Import local modules
-from database import init_db, get_db, seed_diet_recommendations, Patient, KidneyScan, WaterIntake, MealLog, DietRecommendation, Appointment, DoctorRecommendation
+from database import init_db, get_db, seed_diet_recommendations, Patient, KidneyScan, WaterIntake, MealLog, DietRecommendation, Appointment, DoctorRecommendation, RiskSnapshot
 from image_utils import save_upload_file, analyze_image_file
 from schemas import (
     PatientCreate, PatientResponse, ScanUploadRequest, ScanResponse, ScanDetailedResponse,
@@ -23,6 +22,7 @@ from schemas import (
     MealLogCreate, MealLogResponse, DailyMealSummary, MealItemCreate,
     DietRecommendationRequest, DietRecommendationResponse,
     RiskPredictionRequest, RiskPredictionResponse,
+    AppointmentCreate, DoctorRecommendationCreate,
     SuccessResponse, ErrorResponse, HealthSummary
 )
 
@@ -383,7 +383,7 @@ def get_risk_insights(patient_id: str, days: int = 30, db: Session = Depends(get
             "message": "Keep the current hydration and diet routine to preserve recovery progress."
         })
 
-    return {
+    response = {
         "patient_id": patient_id,
         "patient_name": patient.name,
         "risk_percentage": risk_percentage,
@@ -402,6 +402,46 @@ def get_risk_insights(patient_id: str, days: int = 30, db: Session = Depends(get
         "guidelines": guidelines,
         "danger_if_ignored": danger_if_ignored,
         "analysis_window_days": days
+    }
+
+    # Record a monthly snapshot the first time this endpoint is hit in a
+    # given calendar month, so the trend chart accumulates real history
+    # instead of showing fabricated data.
+    current_month = datetime.utcnow().strftime("%Y-%m")
+    existing_snapshot = db.query(RiskSnapshot).filter(
+        RiskSnapshot.patient_id == patient_id,
+        RiskSnapshot.month == current_month
+    ).first()
+    if not existing_snapshot:
+        db.add(RiskSnapshot(
+            id=f"snap_{uuid.uuid4().hex[:8]}",
+            patient_id=patient_id,
+            month=current_month,
+            risk_percentage=risk_percentage
+        ))
+        db.commit()
+
+    return response
+
+
+@app.get("/api/risk-insights/{patient_id}/history")
+def get_risk_history(patient_id: str, months: int = 6, db: Session = Depends(get_db)):
+    """Monthly risk score snapshots for trend charting — starts accumulating from
+    whenever this feature first ran for a patient, rather than fabricating history."""
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    snapshots = db.query(RiskSnapshot).filter(
+        RiskSnapshot.patient_id == patient_id
+    ).order_by(RiskSnapshot.month.asc()).limit(months).all()
+
+    return {
+        "patient_id": patient_id,
+        "history": [
+            {"month": s.month, "risk_percentage": s.risk_percentage}
+            for s in snapshots
+        ]
     }
 
 
@@ -897,53 +937,36 @@ def get_meal_recommendations(patient_id: str, db: Session) -> list:
     return recommendations
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
-
-
 # ============= Appointment Endpoints =============
 
 @app.post("/api/appointments")
-async def create_appointment(
-    patient_id: str,
-    appointment_date: str,
-    appointment_type: str,
-    doctor_type: str,
-    title: str,
-    reason: str,
-    description: str,
-    db: Session = Depends(get_db)
-):
+async def create_appointment(payload: AppointmentCreate, db: Session = Depends(get_db)):
     """Create a new appointment record"""
     try:
-        from datetime import datetime
-        import uuid
-        
         appointment = Appointment(
             id=f"app_{uuid.uuid4().hex[:8]}",
-            patient_id=patient_id,
-            appointment_date=datetime.fromisoformat(appointment_date),
-            appointment_type=appointment_type,
-            doctor_type=doctor_type,
-            title=title,
-            reason=reason,
-            description=description,
+            patient_id=payload.patient_id,
+            appointment_date=datetime.fromisoformat(payload.appointment_date),
+            appointment_type=payload.appointment_type,
+            doctor_type=payload.doctor_type,
+            title=payload.title,
+            reason=payload.reason,
+            description=payload.description,
             status="scheduled"
         )
-        
+
         db.add(appointment)
         db.commit()
         db.refresh(appointment)
-        
+
         return {
             "success": True,
             "appointment_id": appointment.id,
-            "message": f"Appointment scheduled for {appointment_date}"
+            "message": f"Appointment scheduled for {payload.appointment_date}"
         }
     except Exception as e:
         db.rollback()
-        return {"success": False, "error": str(e)}, 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/appointments/{patient_id}")
@@ -972,53 +995,40 @@ async def get_appointments(patient_id: str, db: Session = Depends(get_db)):
             ]
         }
     except Exception as e:
-        return {"success": False, "error": str(e)}, 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============= Doctor Recommendations Endpoints =============
 
 @app.post("/api/recommendations")
-async def save_recommendations(
-    patient_id: str,
-    appointment_id: str,
-    hydration_adjustment: str = None,
-    dietary_changes: str = None,
-    medication_changes: str = None,
-    monitoring_schedule: str = None,
-    follow_up_date: str = None,
-    appointment_date: str = None,
-    db: Session = Depends(get_db)
-):
+async def save_recommendations(payload: DoctorRecommendationCreate, db: Session = Depends(get_db)):
     """Save doctor recommendations after consultation"""
     try:
-        from datetime import datetime
-        import uuid
-        
         recommendation = DoctorRecommendation(
             id=f"rec_{uuid.uuid4().hex[:8]}",
-            patient_id=patient_id,
-            appointment_id=appointment_id,
-            hydration_adjustment=hydration_adjustment,
-            dietary_changes=dietary_changes,
-            medication_changes=medication_changes,
-            monitoring_schedule=monitoring_schedule,
-            follow_up_date=datetime.fromisoformat(follow_up_date) if follow_up_date else None,
-            appointment_date=datetime.fromisoformat(appointment_date) if appointment_date else None
+            patient_id=payload.patient_id,
+            appointment_id=payload.appointment_id,
+            hydration_adjustment=payload.hydration_adjustment,
+            dietary_changes=payload.dietary_changes,
+            medication_changes=payload.medication_changes,
+            monitoring_schedule=payload.monitoring_schedule,
+            follow_up_date=datetime.fromisoformat(payload.follow_up_date) if payload.follow_up_date else None,
+            appointment_date=datetime.fromisoformat(payload.appointment_date) if payload.appointment_date else None
         )
-        
+
         db.add(recommendation)
         db.commit()
         db.refresh(recommendation)
-        
+
         return {
             "success": True,
             "recommendation_id": recommendation.id,
             "message": "Doctor recommendations saved successfully",
-            "follow_up_date": follow_up_date
+            "follow_up_date": payload.follow_up_date
         }
     except Exception as e:
         db.rollback()
-        return {"success": False, "error": str(e)}, 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/recommendations/{patient_id}")
@@ -1047,7 +1057,7 @@ async def get_recommendations(patient_id: str, db: Session = Depends(get_db)):
             ]
         }
     except Exception as e:
-        return {"success": False, "error": str(e)}, 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/recommendations/{patient_id}/latest")
@@ -1080,6 +1090,11 @@ async def get_latest_recommendations(patient_id: str, db: Session = Depends(get_
             }
         }
     except Exception as e:
-        return {"success": False, "error": str(e)}, 500
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)
 
 

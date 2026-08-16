@@ -182,6 +182,29 @@ class HealthSummary(BaseModel):
     recommendations: List[str]
 
 
+# ============= Appointment Schemas =============
+
+class AppointmentCreate(BaseModel):
+    patient_id: str
+    appointment_date: str
+    appointment_type: str
+    doctor_type: str
+    title: str
+    reason: str
+    description: str
+
+
+class DoctorRecommendationCreate(BaseModel):
+    patient_id: str
+    appointment_id: str
+    hydration_adjustment: Optional[str] = None
+    dietary_changes: Optional[str] = None
+    medication_changes: Optional[str] = None
+    monitoring_schedule: Optional[str] = None
+    follow_up_date: Optional[str] = None
+    appointment_date: Optional[str] = None
+
+
 # ============= Generic Response Schemas =============
 
 class SuccessResponse(BaseModel):

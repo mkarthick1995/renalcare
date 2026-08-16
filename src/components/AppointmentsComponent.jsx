@@ -18,6 +18,9 @@ export default function AppointmentsComponent({ patientId = 'patient_demo_001' }
   });
   const [savingRecommendations, setSavingRecommendations] = useState(false);
   const [recommendationSuccess, setRecommendationSuccess] = useState('');
+  const [bookedAppointmentIds, setBookedAppointmentIds] = useState({});
+  const [bookingId, setBookingId] = useState(null);
+  const [bookingError, setBookingError] = useState('');
 
   // Load patient insights
   useEffect(() => {
@@ -293,15 +296,57 @@ export default function AppointmentsComponent({ patientId = 'patient_demo_001' }
     }
   };
 
+  const handleBookNow = async (appointment) => {
+    if (selectedAppointment === appointment.id) {
+      setSelectedAppointment(null);
+      return;
+    }
+
+    setSelectedAppointment(appointment.id);
+
+    if (bookedAppointmentIds[appointment.id]) {
+      return; // already booked and persisted
+    }
+
+    setBookingId(appointment.id);
+    setBookingError('');
+    try {
+      const response = await createAppointment(patientId, {
+        appointment_date: appointment.suggestedDate,
+        appointment_type: appointment.type,
+        doctor_type: appointment.doctorType,
+        title: appointment.title,
+        reason: appointment.reason,
+        description: appointment.description,
+      });
+
+      if (response.success) {
+        setBookedAppointmentIds((prev) => ({ ...prev, [appointment.id]: response.appointment_id }));
+      } else {
+        setBookingError(response.error || 'Failed to book appointment');
+      }
+    } catch (err) {
+      setBookingError('Failed to book appointment: ' + err.message);
+    } finally {
+      setBookingId(null);
+    }
+  };
+
   const handleSaveRecommendations = async (appointmentId) => {
     if (!newRecommendations.followUpDate) {
       alert('Please specify a follow-up date');
       return;
     }
 
+    const realAppointmentId = bookedAppointmentIds[appointmentId];
+    if (!realAppointmentId) {
+      alert('Please book the appointment before adding doctor notes');
+      return;
+    }
+
     setSavingRecommendations(true);
     try {
-      const response = await saveRecommendations(patientId, appointmentId, {
+      const response = await saveRecommendations(patientId, realAppointmentId, {
         ...newRecommendations,
         appointmentDate: appointments.find(a => a.id === appointmentId)?.suggestedDate,
       });
@@ -457,21 +502,32 @@ export default function AppointmentsComponent({ patientId = 'patient_demo_001' }
             </div>
 
             {/* Actions */}
-            <div className="flex gap-2 mt-4">
+            <div className="flex gap-2 mt-4 items-center">
               <button
-                onClick={() => setSelectedAppointment(selectedAppointment === appointment.id ? null : appointment.id)}
-                className="px-4 py-2 bg-white text-slate-700 rounded-lg font-semibold hover:bg-slate-100 transition-all border border-slate-300"
+                onClick={() => handleBookNow(appointment)}
+                disabled={bookingId === appointment.id}
+                className="px-4 py-2 bg-white text-slate-700 rounded-lg font-semibold hover:bg-slate-100 transition-all border border-slate-300 disabled:opacity-60"
               >
-                {selectedAppointment === appointment.id ? 'Hide Details' : 'Book Now'}
+                {bookingId === appointment.id
+                  ? 'Booking...'
+                  : selectedAppointment === appointment.id
+                    ? 'Hide Details'
+                    : bookedAppointmentIds[appointment.id]
+                      ? 'Booked ✓ — View Details'
+                      : 'Book Now'}
               </button>
-              
-              {selectedAppointment === appointment.id && (
+
+              {selectedAppointment === appointment.id && bookedAppointmentIds[appointment.id] && (
                 <button
                   onClick={() => setShowRecommendationForm(appointment.id)}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-all"
                 >
                   Add Doctor Notes
                 </button>
+              )}
+
+              {selectedAppointment === appointment.id && bookingError && (
+                <span className="text-sm text-red-700">{bookingError}</span>
               )}
             </div>
           </div>

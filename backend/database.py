@@ -129,6 +129,17 @@ class DoctorRecommendation(Base):
     # Relationships
     patient = relationship("Patient", back_populates="recommendations")
 
+class RiskSnapshot(Base):
+    """Monthly risk score snapshot, used to chart real risk trend history over time."""
+    __tablename__ = "risk_snapshots"
+
+    id = Column(String, primary_key=True, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"), index=True)
+    month = Column(String, index=True)  # "YYYY-MM"
+    risk_percentage = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class DietRecommendation(Base):
     """Diet recommendations based on stone type"""
     __tablename__ = "diet_recommendations"

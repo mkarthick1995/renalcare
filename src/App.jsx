@@ -4,58 +4,51 @@ import { Upload, Droplet, TrendingDown, Activity, AlertCircle, Check, Calendar, 
 import ImageUploadComponent from './components/ImageUploadComponent';
 import WaterIntakeComponent from './components/WaterIntakeComponent';
 import RiskInsightsComponent from './components/RiskInsightsComponent';
-
 import AppointmentsComponent from './components/AppointmentsComponent';
+import GoalsComponent from './components/GoalsComponent';
+import { getHealthSummary, getRiskInsights, getRiskHistory } from './api';
+
+const PATIENT_ID = 'patient_demo_001';
+
 export default function App() {
-  const [hydration, setHydration] = useState(0);
-  const [riskScore, setRiskScore] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [uploadedFile, setUploadedFile] = useState(null);
   const [stoneComposition, setStoneComposition] = useState('calcium-oxalate');
   const [activeTab, setActiveTab] = useState('dashboard'); // NEW: Tab navigation
 
-  // Animate hydration on mount
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setHydration(80);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, []);
+  const [healthSummary, setHealthSummary] = useState(null);
+  const [riskInsights, setRiskInsights] = useState(null);
+  const [riskHistory, setRiskHistory] = useState([]);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
 
-  // Animate risk score on mount
   useEffect(() => {
-    const duration = 2000;
-    const steps = 60;
-    const increment = 24 / steps;
-    let current = 0;
-    
-    const timer = setInterval(() => {
-      current += increment;
-      if (current >= 24) {
-        setRiskScore(24);
-        clearInterval(timer);
-      } else {
-        setRiskScore(Math.floor(current));
+    let cancelled = false;
+
+    const loadDashboardData = async () => {
+      setDashboardLoading(true);
+      try {
+        const [summary, insights, history] = await Promise.all([
+          getHealthSummary(PATIENT_ID),
+          getRiskInsights(PATIENT_ID, 90),
+          getRiskHistory(PATIENT_ID, 6),
+        ]);
+        if (cancelled) return;
+        setHealthSummary(summary);
+        setRiskInsights(insights);
+        setRiskHistory(history.history || []);
+      } catch (err) {
+        console.error('Error loading dashboard data:', err);
+      } finally {
+        if (!cancelled) setDashboardLoading(false);
       }
-    }, duration / steps);
-    
-    return () => clearInterval(timer);
+    };
+
+    loadDashboardData();
+    return () => { cancelled = true; };
   }, []);
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    setUploadedFile('ct-scan-sample.dcm');
-  };
+  const hydration = healthSummary
+    ? Math.min(100, Math.round((healthSummary.today_water_intake_ml / healthSummary.water_goal_ml) * 100))
+    : 0;
+  const riskScore = riskInsights ? Math.round(riskInsights.risk_percentage) : 0;
 
   const lowOxalateFoods = [
     { name: 'Cauliflower', oxalate: 'Very Low', icon: '🥦', color: 'from-emerald-50 to-teal-50' },
@@ -132,17 +125,34 @@ export default function App() {
           </nav>
 
           <div className="absolute bottom-8 left-8 right-8">
-            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-5">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
-                  <Check className="w-5 h-5 text-emerald-600" strokeWidth={2.5} />
+            {(() => {
+              const level = riskInsights?.risk_level || null;
+              const tone = level === 'High'
+                ? { bg: 'from-red-50 to-orange-50', border: 'border-red-200', iconBg: 'bg-red-100', icon: 'text-red-600', title: 'text-red-900', text: 'text-red-700' }
+                : level === 'Moderate'
+                ? { bg: 'from-amber-50 to-yellow-50', border: 'border-amber-200', iconBg: 'bg-amber-100', icon: 'text-amber-600', title: 'text-amber-900', text: 'text-amber-700' }
+                : { bg: 'from-emerald-50 to-teal-50', border: 'border-emerald-200', iconBg: 'bg-emerald-100', icon: 'text-emerald-600', title: 'text-emerald-900', text: 'text-emerald-700' };
+              const message = level === 'High'
+                ? 'Your risk is elevated — check Risk Insights for a recovery plan.'
+                : level === 'Moderate'
+                ? 'Your kidney health needs regular monitoring. Keep tracking your habits.'
+                : level === 'Low'
+                ? 'Your kidney health is excellent. Keep up the great work!'
+                : 'Loading your current status...';
+              return (
+                <div className={`bg-gradient-to-br ${tone.bg} border ${tone.border} rounded-2xl p-5`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`w-10 h-10 ${tone.iconBg} rounded-xl flex items-center justify-center`}>
+                      <Check className={`w-5 h-5 ${tone.icon}`} strokeWidth={2.5} />
+                    </div>
+                    <div>
+                      <p className={`text-sm font-semibold ${tone.title} mb-1`}>{level ? `${level} Risk Status` : 'Risk Status'}</p>
+                      <p className={`text-xs ${tone.text} leading-relaxed`}>{message}</p>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-emerald-900 mb-1">Low Risk Status</p>
-                  <p className="text-xs text-emerald-700 leading-relaxed">Your kidney health is excellent. Keep up the great work!</p>
-                </div>
-              </div>
-            </div>
+              );
+            })()}
           </div>
         </div>
       </motion.aside>
@@ -158,11 +168,11 @@ export default function App() {
           {/* CONDITIONAL: Show based on active tab */}
           {activeTab !== 'dashboard' && (
             <motion.div variants={itemVariants}>
-              {activeTab === 'scan' && <ImageUploadComponent patientId="patient_demo_001" />}
-              {activeTab === 'hydration' && <WaterIntakeComponent patientId="patient_demo_001" />}
-              {activeTab === 'risk' && <RiskInsightsComponent patientId="patient_demo_001" />}
-              {activeTab === 'appointments' && <AppointmentsComponent patientId="patient_demo_001" />}
-              {activeTab === 'goals' && <div className="text-center text-slate-600 py-12"><p>Health Goals coming soon</p></div>}
+              {activeTab === 'scan' && <ImageUploadComponent patientId={PATIENT_ID} />}
+              {activeTab === 'hydration' && <WaterIntakeComponent patientId={PATIENT_ID} />}
+              {activeTab === 'risk' && <RiskInsightsComponent patientId={PATIENT_ID} />}
+              {activeTab === 'appointments' && <AppointmentsComponent patientId={PATIENT_ID} />}
+              {activeTab === 'goals' && <GoalsComponent patientId={PATIENT_ID} />}
             </motion.div>
           )}
 
@@ -192,10 +202,17 @@ export default function App() {
 
             {/* Health Status Cards */}
             <div className="grid grid-cols-3 gap-6 mt-8">
-              {[
-                { label: 'Days Stone-Free', value: '127', trend: '+12%', color: 'emerald' },
-                { label: 'Hydration Goal', value: '80%', trend: 'On Track', color: 'blue' },
-                { label: 'Risk Score', value: '24%', trend: 'Low', color: 'green' },
+              {dashboardLoading ? (
+                <div className="col-span-3 text-center text-slate-500 py-8">Loading your health data...</div>
+              ) : [
+                {
+                  label: 'Today\'s Water Intake',
+                  value: healthSummary ? `${Math.round(healthSummary.today_water_intake_ml)} ml` : 'N/A',
+                  trend: `${hydration}% of goal`,
+                  color: hydration >= 80 ? 'emerald' : 'orange',
+                },
+                { label: 'Hydration Goal', value: `${hydration}%`, trend: hydration >= 80 ? 'On Track' : 'Needs Attention', color: hydration >= 80 ? 'blue' : 'orange' },
+                { label: 'Risk Score', value: `${riskScore}%`, trend: riskInsights?.risk_level || 'Unknown', color: riskScore < 40 ? 'green' : riskScore < 70 ? 'orange' : 'red' },
               ].map((stat, idx) => (
                 <motion.div
                   key={idx}
@@ -209,7 +226,7 @@ export default function App() {
                   <p className="text-3xl font-bold text-slate-900 mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>
                     {stat.value}
                   </p>
-                  <p className={`text-${stat.color}-600 text-sm font-medium`}>↑ {stat.trend}</p>
+                  <p className={`text-${stat.color}-600 text-sm font-medium`}>{stat.trend}</p>
                 </motion.div>
               ))}
             </div>
@@ -220,93 +237,49 @@ export default function App() {
             <h3 className="text-2xl font-bold text-slate-900 mb-6" style={{ fontFamily: "'Outfit', sans-serif" }}>
               AI Scan Analysis
             </h3>
-            <div className="grid grid-cols-2 gap-6">
-              {/* Upload Zone */}
-              <motion.div
-                whileHover={{ scale: 1.01 }}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                className={`bg-white rounded-2xl border-2 border-dashed p-12 flex flex-col items-center justify-center cursor-pointer transition-all ${
-                  isDragging 
-                    ? 'border-blue-500 bg-blue-50/50 shadow-xl shadow-blue-200/50' 
-                    : 'border-slate-300 hover:border-blue-400 hover:bg-blue-50/30'
-                }`}
-                style={{
-                  animation: isDragging ? 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' : 'none'
-                }}
-              >
-                <motion.div
-                  animate={isDragging ? { scale: [1, 1.1, 1] } : { scale: 1 }}
-                  transition={{ duration: 1, repeat: isDragging ? Infinity : 0 }}
-                  className="w-20 h-20 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-2xl flex items-center justify-center mb-6"
-                >
-                  <Upload className="w-10 h-10 text-blue-600" strokeWidth={2} />
-                </motion.div>
-                <h4 className="text-lg font-semibold text-slate-900 mb-2">
-                  {uploadedFile ? 'Scan Uploaded!' : 'Upload CT Scan'}
-                </h4>
-                <p className="text-slate-500 text-sm text-center mb-4">
-                  {uploadedFile ? uploadedFile : 'Drag and drop your DICOM file or click to browse'}
-                </p>
-                <button className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-blue-200 transition-all">
-                  Browse Files
-                </button>
-              </motion.div>
+            <div className="grid grid-cols-2 gap-6 items-start">
+              <ImageUploadComponent patientId={PATIENT_ID} />
 
-              {/* Scan Results */}
-              <motion.div 
+              {/* Latest Real Scan Summary */}
+              <motion.div
                 initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: uploadedFile ? 1 : 0.5, x: 0 }}
+                animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.6 }}
                 className="bg-white rounded-2xl p-8 border border-slate-200/60 shadow-lg shadow-slate-200/50"
               >
                 <h4 className="text-lg font-semibold text-slate-900 mb-6 flex items-center gap-2">
                   <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  Scan Analysis Results
+                  Latest Scan on Record
                 </h4>
-                
-                {/* Mock CT Scan with Bounding Box */}
-                <div className="relative bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl overflow-hidden mb-6 aspect-square">
-                  <div className="absolute inset-0 opacity-40" style={{
-                    backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(100, 116, 139, 0.3), transparent)',
-                  }}></div>
-                  {/* Simulated kidney outline */}
-                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-40 border-2 border-slate-500 rounded-full opacity-30"></div>
-                  
-                  {/* Bounding Box for Stone */}
-                  <motion.div
-                    initial={{ scale: 0, opacity: 0 }}
-                    animate={uploadedFile ? { scale: 1, opacity: 1 } : {}}
-                    transition={{ delay: 0.5, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                    className="absolute top-1/3 right-1/3 w-16 h-16 border-2 border-red-500 bg-red-500/10"
-                  >
-                    <div className="absolute -top-6 left-0 bg-red-500 text-white text-xs px-2 py-1 rounded">
-                      Stone Detected
-                    </div>
-                  </motion.div>
-                  
-                  {/* Scan overlay text */}
-                  <div className="absolute bottom-4 left-4 text-green-400 text-xs font-mono">
-                    SCAN_2024_04_17.dcm
-                  </div>
-                </div>
 
-                {/* Metrics */}
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl">
-                    <span className="text-slate-600 font-medium text-sm">Estimated Size</span>
-                    <span className="text-slate-900 font-bold text-lg">6.5 mm</span>
+                {healthSummary?.latest_scan ? (
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl">
+                      <span className="text-slate-600 font-medium text-sm">Stone Size</span>
+                      <span className="text-slate-900 font-bold text-lg">
+                        {healthSummary.latest_scan.stone_size_mm?.toFixed(2)} mm
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl">
+                      <span className="text-slate-600 font-medium text-sm">Location</span>
+                      <span className="text-slate-900 font-bold">{healthSummary.latest_scan.stone_location}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl">
+                      <span className="text-slate-600 font-medium text-sm">Severity</span>
+                      <span className="text-slate-900 font-bold capitalize">{healthSummary.latest_scan.severity}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-4 bg-emerald-50 rounded-xl border border-emerald-200">
+                      <span className="text-emerald-700 font-medium text-sm">Confidence</span>
+                      <span className="text-emerald-900 font-bold">
+                        {((healthSummary.latest_scan.confidence || 0) * 100).toFixed(1)}%
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl">
-                    <span className="text-slate-600 font-medium text-sm">Location</span>
-                    <span className="text-slate-900 font-bold">Right Kidney</span>
-                  </div>
-                  <div className="flex justify-between items-center p-4 bg-emerald-50 rounded-xl border border-emerald-200">
-                    <span className="text-emerald-700 font-medium text-sm">Confidence</span>
-                    <span className="text-emerald-900 font-bold">94.3%</span>
-                  </div>
-                </div>
+                ) : (
+                  <p className="text-slate-500 text-sm text-center py-8">
+                    No scans uploaded yet. Analyze a scan to see results here.
+                  </p>
+                )}
               </motion.div>
             </div>
           </motion.div>
@@ -456,7 +429,7 @@ export default function App() {
                     >
                       {riskScore}%
                     </motion.p>
-                    <p className="text-sm text-slate-600 font-medium">Low Risk</p>
+                    <p className="text-sm text-slate-600 font-medium">{riskInsights?.risk_level || 'Unknown'} Risk</p>
                   </div>
                 </div>
 
@@ -472,33 +445,55 @@ export default function App() {
                   <TrendingDown className="w-5 h-5 text-emerald-600" />
                 </h4>
 
-                {/* Simple CSS Chart Placeholder */}
-                <div className="relative h-64 flex items-end justify-between gap-2 px-4">
-                  {[68, 54, 45, 38, 29, 24].map((value, idx) => (
-                    <div key={idx} className="flex-1 flex flex-col items-center gap-2">
-                      <motion.div
-                        initial={{ height: 0 }}
-                        animate={{ height: `${(100 - value)}%` }}
-                        transition={{ delay: 0.5 + idx * 0.15, duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-                        className="w-full bg-gradient-to-t from-emerald-400 to-teal-400 rounded-t-xl relative"
-                        style={{ maxHeight: '100%' }}
-                      >
-                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-sm font-bold text-slate-700">
-                          {value}%
+                {riskHistory.length > 0 ? (
+                  <>
+                    <div className="relative h-64 flex items-end justify-between gap-2 px-4">
+                      {riskHistory.map((point, idx) => (
+                        <div key={point.month} className="flex-1 flex flex-col items-center gap-2">
+                          <motion.div
+                            initial={{ height: 0 }}
+                            animate={{ height: `${Math.max(4, 100 - point.risk_percentage)}%` }}
+                            transition={{ delay: 0.5 + idx * 0.15, duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+                            className="w-full bg-gradient-to-t from-emerald-400 to-teal-400 rounded-t-xl relative"
+                            style={{ maxHeight: '100%' }}
+                          >
+                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-sm font-bold text-slate-700">
+                              {point.risk_percentage}%
+                            </div>
+                          </motion.div>
+                          <span className="text-xs text-slate-500 font-medium">{point.month}</span>
                         </div>
-                      </motion.div>
-                      <span className="text-xs text-slate-500 font-medium">
-                        {['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'][idx]}
-                      </span>
+                      ))}
                     </div>
-                  ))}
-                </div>
 
-                <div className="mt-8 p-4 bg-emerald-50 rounded-xl border border-emerald-200">
-                  <p className="text-sm text-emerald-800">
-                    <span className="font-bold">↓ 44% reduction</span> in recurrence risk over 6 months. Excellent progress!
+                    {riskHistory.length > 1 && (
+                      <div className="mt-8 p-4 bg-emerald-50 rounded-xl border border-emerald-200">
+                        <p className="text-sm text-emerald-800">
+                          {riskHistory[riskHistory.length - 1].risk_percentage <= riskHistory[0].risk_percentage ? (
+                            <>
+                              <span className="font-bold">
+                                ↓ {(riskHistory[0].risk_percentage - riskHistory[riskHistory.length - 1].risk_percentage).toFixed(1)}%
+                                {' '}reduction
+                              </span> in recurrence risk since tracking began.
+                            </>
+                          ) : (
+                            <>
+                              <span className="font-bold">
+                                ↑ {(riskHistory[riskHistory.length - 1].risk_percentage - riskHistory[0].risk_percentage).toFixed(1)}%
+                                {' '}increase
+                              </span> in recurrence risk since tracking began — review your hydration and diet compliance.
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-slate-500 text-sm text-center py-12">
+                    Risk trend data starts accumulating from your first month using RenalCare AI.
+                    Check back next month to see your progress.
                   </p>
-                </div>
+                )}
               </div>
             </div>
           </motion.div>
@@ -517,7 +512,10 @@ export default function App() {
                   Schedule a consultation with our kidney specialists for personalized care.
                 </p>
               </div>
-              <button className="px-8 py-3.5 bg-white text-blue-900 rounded-xl font-semibold hover:shadow-2xl hover:shadow-white/20 transition-all">
+              <button
+                onClick={() => setActiveTab('appointments')}
+                className="px-8 py-3.5 bg-white text-blue-900 rounded-xl font-semibold hover:shadow-2xl hover:shadow-white/20 transition-all"
+              >
                 Book Appointment
               </button>
             </div>
